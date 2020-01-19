@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?><!DOCTYPE nta PUBLIC '-//Uppaal Team//DTD Flat System 1.1//EN' 'http://www.it.uu.se/research/group/darts/uppaal/flat-1_1.dtd'>
+<nta><declaration>// Place global declarations here.
+chan SV,GOOSE,manual_reset,trip,trip_signal;
+bool breaker_status = false;
+int stNum = 1;
+int sqNum = 0;
+int net_current = 0;
+int no_of_goose =0;
+int prev_stNum=0;
+clock timer;
+int no_of_SV = 0;</declaration>
+
+<template>
+<name x="5" y="5">busbar_IED</name>
+<declaration>// Place local declarations here.</declaration>
+<location id="id0" x="424" y="-112">
+<name x="440" y="-128">activate_relay</name></location>
+<location id="id1" x="160" y="-112">
+<name x="136" y="-96">Monitor</name></location>
+<location id="id2" x="-78" y="-114">
+<name x="-176" y="-136">busbar_start</name></location>
+<init ref="id2"/>
+<transition>
+<source ref="id0"/>
+<target ref="id2"/>
+<label kind="guard" x="80" y="-240">breaker_status==true</label>
+<nail x="424" y="-208"/><nail x="-80" y="-216"/>
+</transition>
+<transition>
+<source ref="id1"/>
+<target ref="id2"/>
+<label kind="guard" x="-48" y="-200">meas_net_current==0</label>
+<nail x="16" y="-176"/><nail x="16" y="-176"/></transition>
+<transition><source ref="id0"/><target ref="id2"/>
+<label kind="guard" x="-24" y="-32">breaker_status == false</label>
+<label kind="synchronisation" x="-24" y="-16">GOOSE!</label>
+<label kind="assignment" x="-24" y="0">no_of_goose=1,breaker_status = true, stNum=stNum+1, sqNum=0</label>
+<nail x="112" y="-32"/>
+</transition>
+<transition><source ref="id0"/><target ref="id2"/>
+<label kind="guard" x="-24" y="-32">breaker_status == false</label>
+<label kind="synchronisation" x="-24" y="-16">GOOSE!</label>
+<label kind="assignment" x="-24" y="0">no_of_goose=1,breaker_status = true, stNum=stNum+1, sqNum=0</label>
+<nail x="112" y="-32"/>
+</transition>
+<transition>
+<source ref="id1"/>
+<target ref="id0"/>
+<label kind="guard" x="176" y="-136">meas_net_current &gt; threshold_of_relay</label>
+</transition>
+<transition>
+<source ref="id2"/>
+<target ref="id1"/>
+<label kind="synchronisation" x="8" y="-136">SV?</label>
+</transition>
+</template>
+
+<template>
+<name>feeder_IED</name>
+<declaration>// Place local declarations here.
+//int prev_stNum=0;
+bool is_busy = false;
+</declaration>
+<location id="id3" x="-112" y="88">
+<name x="-96" y="80">busy</name>
+</location>
+<location id="id4" x="-144" y="-16">
+<name x="-128" y="-24">process_msg</name>
+</location>
+<location id="id5" x="-318" y="-18">
+<name x="-416" y="-32">feeder_start</name>
+</location>
+<init ref="id5"/>
+<transition>
+<source ref="id5"/>
+<target ref="id3"/>
+<label kind="guard" x="-240" y="272">is_busy==true</label>
+<label kind="synchronisation" x="-224" y="288">GOOSE?</label>
+<nail x="-312" y="304"/>
+<nail x="-40" y="312"/>
+</transition>
+<transition>
+<source ref="id3"/>
+<target ref="id5"/>
+<label kind="assignment" x="-272" y="224">is_busy=true</label>
+<nail x="-237" y="229"/>
+</transition>
+<transition>
+<source ref="id4"/>
+<target ref="id3"/>
+<label kind="guard" x="-112" y="24">no_of_goose==10</label>
+</transition>
+<transition>
+<source ref="id4"/>
+<target ref="id5"/>
+<label kind="guard" x="-408" y="120">no_of_goose&lt;=1 &amp;&amp; breaker_status ==true &amp;&amp; stNum &lt; prev_stNum &amp;&amp; sqNum !=0</label>
+<nail x="-232" y="120"/>
+</transition>
+<transition>
+<source ref="id4"/>
+<target ref="id5"/>
+<label kind="guard" x="-280" y="-216">no_of_goose &lt;=1 &amp;&amp; breaker_status==true &amp;&amp; stNum &gt; prev_stNum &amp;&amp; sqNum ==0</label><label kind="synchronisation" x="-280" y="-200">trip_signal!</label><label kind="assignment" x="-280" y="-184">prev_stNum = stNum</label><nail x="-232" y="-152"/></transition><transition><source ref="id5"/><target ref="id4"/><label kind="guard" x="-272" y="-56">is_busy==false</label><label kind="synchronisation" x="-272" y="-40">GOOSE?</label></transition></template>
+
+
+<template>
+<name>CB</name>
+<declaration>clock wait; bool trip=true;</declaration>
+<location id="id6" x="-126" y="-122">
+<name x="-136" y="-152">untrip</name>
+</location>
+<location id="id7" x="72" y="-32">
+<name x="56" y="-72">trip_CB</name>
+<label kind="invariant" x="62" y="-17">wait&lt;=3</label>
+</location>
+<location id="id8" x="-296" y="-120">
+<name x="-312" y="-160">CB_start</name>
+<committed/></location><init ref="id8"/>
+<transition>
+<source ref="id6"/>
+<target ref="id7"/>
+<label kind="synchronisation" x="-24" y="-112">trip_signal?</label>
+<label kind="assignment" x="-24" y="-96">wait=0</label>
+</transition>
+<transition>
+<source ref="id8"/>
+<target ref="id6"/>
+</transition>
+<transition>
+<source ref="id7"/>
+<target ref="id6"/>
+<label kind="guard" x="-208" y="88">wait&gt;=3</label>
+<label kind="assignment" x="-208" y="104">breaker_status=false</label>
+<label kind="comments">manual reset</label>
+<nail x="-176" y="87"/>
+</transition>
+</template>
+
+<template>
+<name>MU</name>
+<declaration>int net_current_values[10] = {0,0,0,0,0,0,0,0,0,0};
+int i = 0;
+void initMU(){
+net_current_values[0]=1;
+net_current_values[1]=1;
+net_current_values[2]=1;
+net_current_values[3]=1;
+net_current_values[4]=1;
+net_current_values[5]=1;
+net_current_values[6]=1;
+net_current_values[7]=1;
+net_current_values[8]=1;
+net_current_values[9]=1;
+
+}
+
+void updateNetCurrent(){
+	if (i&lt;=9){
+	net_current = net_current_values[i];
+	i = i+1;
+	}
+	else {
+	net_current = 0;
+	}
+}</declaration><location id="id9" x="-120" y="-136"><name x="-104" y="-144">MU_send</name><label kind="invariant" x="-130" y="-121">timer&lt;=1</label></location><location id="id10" x="-360" y="-136"><name x="-392" y="-176">MU_start</name></location><init ref="id10"/><transition><source ref="id9"/><target ref="id9"/><label kind="guard" x="-48" y="-312">timer&gt;=1</label><label kind="synchronisation" x="-48" y="-296">SV!</label><label kind="assignment" x="-48" y="-280">timer=0,
+updateNetCurrent(),
+no_of_SV++</label><nail x="-180" y="-320"/><nail x="-56" y="-320"/></transition><transition><source ref="id10"/><target ref="id9"/><label kind="synchronisation" x="-296" y="-136">SV!</label><label kind="assignment" x="-296" y="-120">timer=0,
+initMU()</label></transition></template><template><name>InjectDoS</name><declaration>clock atktimer;
+</declaration><location id="id11" x="170" y="1"><name x="154" y="17">inject</name><label kind="invariant" x="152" y="32">atktimer&lt;=1</label></location><init ref="id11"/><transition><source ref="id11"/><target ref="id11"/><label kind="guard" x="138" y="-151">atktimer&gt;=1</label><label kind="synchronisation" x="138" y="-135">GOOSE!</label><label kind="assignment" x="138" y="-111">atktimer=0,
+no_of_goose=10</label><nail x="70" y="-113"/><nail x="278" y="-113"/></transition></template><template><name>InjectHighstNum</name><location id="id12" x="-88" y="-56"><name x="-114" y="-38">A1_inject</name></location><init ref="id12"/><transition><source ref="id12"/><target ref="id12"/><label kind="guard" x="-144" y="-224">no_of_SV==5</label><label kind="synchronisation" x="-140" y="-204">GOOSE!</label><label kind="assignment" x="-140" y="-188">breaker_status=true,stNum=prev_stNum+1,sqNum=0</label><nail x="-234" y="-158"/><nail x="62" y="-158"/></transition></template><system>// Place template instantiations here.
+busbar_relay = busbar_IED();
+feeder_relay=feeder_IED();
+circuit_breaker = CB();
+merging_unit = MU();
+A1=InjectHighstNum();
+A2=InjectDoS();
+
+// List one or more processes to be composed into a system.
+system merging_unit,busbar_relay,feeder_relay,circuit_breaker,A2;</system></nta>

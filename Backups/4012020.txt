@@ -1,0 +1,368 @@
+# Library imports
+import lxml.etree
+import numpy as np
+import re
+
+# Get directory for all the XMLs files
+path = './XMLs'
+# Notes on XML parsing
+# <name x="5" y="5">busbar_IED</name>
+# name is tag, x="5" y="5" is attrib, busbar_IED is text. P
+
+#xml_file = ET.parse(path+"/Test_Busbar.xml")
+xml_file = lxml.etree.parse(path+"/Test_Busbar.xml")
+root_xml = xml_file.getroot()
+
+#==============
+#'''
+def is_number(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        pass
+
+    try:
+        import unicodedata
+        unicodedata.numeric(s)
+        return True
+    except (TypeError, ValueError):
+        pass
+
+    return False
+
+def is_bool(b):
+    b_list = ["True", "TRUE", "true", "False", "FALSE", "false"]
+    try:
+        if b in b_list:
+            return True
+    except:
+        return False
+
+#Getting global declaration
+brodata_types = ["int", "char", "bool", "clock", "chan"]
+local_vars = [elem.text for elem in (root_xml.findall(".//label"))]
+temp_vars = []
+for var in local_vars:
+    temp = re.findall("[>=<+-]", var)
+    if len(temp) != 0:
+        temp_vars.append(var)
+local_vars = temp_vars
+temp_vars, temp = 0, 0
+temp_dict ={}
+
+def determine_vartype(list):
+    if is_number(list[1]):
+        return list[0]+": "+"double"
+    if is_bool(list[1]):
+        return list[0]+": "+"bool"
+    else:
+        return 0
+
+bro_localvars = []
+for var in local_vars:
+    var = var.strip()
+    var = var.replace(" ","")
+    var_temp = re.split('<(?!=)|<=|==|=(?!=)|>(?!=)|>=',var)
+    if len(var_temp)==2:
+        bro_localvars.append(determine_vartype(var_temp))
+    else:
+        var = var.split(",")
+        for var_2 in var:
+            var_2 = var_2.strip()
+            var_2 = var_2.replace(" ", "")
+            var2_temp = re.split('<(?!=)|<=|==|=(?!=)|>(?!=)|>=', var_2)
+            if len(var2_temp) == 2:
+                bro_localvars.append(determine_vartype(var2_temp))
+
+
+#'''
+#==============
+
+# Function to get names of templates
+def get_names(xml):
+    names = []
+    for elem in xml.findall(".//template/name"):
+        names.append(elem.text)
+        #print(elem.text)
+    return names
+
+
+class xml_data():
+    def __init__(self, name):
+        self.name = name
+        self.node = root_xml.find(".//template[name='{}']".format(self.name))
+        self.id_names = self.get_ids()
+        self.matrix = self.form_matrix()
+
+    def get_ids(self):
+        find_src = self.node.findall(".//source")
+        find_tgt = self.node.findall(".//target")
+        ids = [at.attrib["ref"] for at in find_src]
+        ids.extend([at.attrib["ref"] for at in find_src])
+        id_names = sorted(set(ids))
+        return id_names
+
+    def find_condition(self):
+        cond_loc = self.node.xpath(".//*[contains(text(), '!')][not(contains(text(), '!='))]/..") #"!" is used as precondition check
+        #Need another way to find !, find guard and find !
+        #cond_loc = cond_loc.xpath(".//*[not(contains(text(), '!='))]/..")  # "!" is used as precondition check
+        if len(cond_loc) != 1:
+            print("Error 400: No preconditions or multiple precondition found for {}! "
+                  "Please code further or it is an error!".format(self.name))
+            return '400'
+        else:
+            self.store_data(cond_loc)
+            return cond_loc
+
+    def find_vectors(self, element, hop=1): # Element is the starting point where '!' is found
+        src = (element[0].find(".//source")).attrib["ref"]
+        tgt = (element[0].find(".//target")).attrib["ref"]
+        self.vector = [(src, tgt)]
+        self.find_tgt(self.vector, hops=hop)
+
+    def find_tgt(self, vectors, hops=1): #Hops is the number of hops from '!'
+        hop = hops-1
+        if hop == 0:
+            #print(vectors)
+            return vectors
+        else:
+            src = vectors[0][0]
+            finder = (self.node.findall(".//target[@ref='{}']/..".format(src)))
+            if len(finder) == 1:
+                tgt = finder[0].find(".//source").attrib["ref"]
+                self.store_data(finder) #Store data whenever a target is found
+                self.vector.insert(0,(tgt, src))
+                #print(self.vector)
+            elif len(finder) >= 1:
+                self.vector.insert(0, self.src_tgt_list(finder))
+                print("Multiple targets as output! No further hops! Returning vectors! But xml data for "
+                      "multiple vectors not stored in matrix")
+                #self.store_data(finder)  # Store data whenever a target is found
+                return self.vector
+            else:
+                return self.vector
+        self.find_tgt(self.vector, hop)
+
+    def form_matrix(self):
+        self.idx = {}
+        temp_cnt = 0
+        for id in self.id_names:
+            self.idx[id] = temp_cnt
+            temp_cnt = temp_cnt + 1
+        dim_names = set([elem.attrib["kind"] for elem in self.node.findall(".//*[@kind]")])
+        self.dim = {}
+        temp_cnt = 0
+        for d in dim_names:
+            self.dim[d] = temp_cnt
+            temp_cnt = temp_cnt + 1
+        m_matrix = {}
+        for d in self.dim:
+            m_matrix[d] = np.zeros((len(self.idx), len(self.idx)), dtype=object) # no. of Dimension, row, colmuns
+        #m_matrix = np.zeros((len(self.dim), len(self.idx), len(self.idx)), dtype=object) # no. of Dimension, row, colmuns
+        return m_matrix
+
+    def store_data(self, elements):
+        for elem in elements:
+            row = (elem.find(".//source")).attrib["ref"]
+            col = (elem.find(".//target")).attrib["ref"]
+            kind = [e.attrib["kind"] for e in elem.findall(".//*[@kind]")]
+
+            for label in kind:
+                mtx = self.matrix[label].item((self.idx[row], self.idx[col]))
+                elem_txt = (elem.find(".//*[@kind='{}']".format(label))).text
+                if mtx is 0 or mtx is None:
+                    self.matrix[label][self.idx[row], self.idx[col]] = [elem_txt]
+                else:
+                    if elem_txt not in mtx:
+                        temp_data = mtx.append(elem_txt)
+                        #temp_data.append(elem_txt)
+                        self.matrix[label][self.idx[row], self.idx[col]] = temp_data
+
+                #print((elem.find(".//*[@kind='{}']".format(label))).text)
+                #self.matrix[self.dim[label], self.idx[row], self.idx[col]]= \
+                #    (elem.find(".//*[@kind='{}']".format(label))).text
+
+    def src_tgt_list(self, elements):
+        temp_list = []
+        for elem in elements:
+            src = elem.find(".//source").attrib["ref"]
+            tgt = elem.find(".//target").attrib["ref"]
+            temp_list.append((src,tgt))
+        return temp_list
+
+xml_names = get_names(root_xml)
+xml_dict = {}
+for name in xml_names:
+    xml_dict[name]=xml_data(name)
+    cond_check = xml_dict[name].find_condition()
+    if cond_check == '400':
+        print("Error 400 generated! No vectors found in precondition for template name{}".format(name))
+        xml_dict[name] = "Error 400: No pre-condition found!"
+
+    elif len(cond_check) != 1:
+        print("Error 401 generated! Too many precondition found for template name {}".format(name))
+        xml_dict[name] = "Error 401: More than one or no pre-condition found!"
+
+    else:
+        xml_dict[name].find_vectors(cond_check, hop=2)
+
+def get_conditions(data_xml):
+    final_xml = data_xml.copy()
+    for key in data_xml:
+        if isinstance(data_xml[key], str) is False:
+            for dim in data_xml[key].dim:
+                temp_data = data_xml[key].matrix[dim][np.nonzero(data_xml[key].matrix[dim])]
+                flattened_list = [y for x in temp_data for y in x]
+                final_xml[key].matrix[dim] = flattened_list
+        else:
+            del final_xml[key]
+    return final_xml
+
+final_xmldata = get_conditions(xml_dict)
+
+class form_attacks():
+    def __init__(self, name, id_names, matrix):
+        self.name = name
+        self.id_names = id_names
+        self.orig_matrix = matrix
+        self.negated_matrix = matrix.copy()
+        self.attacks = ["Replay", "Flood", "Injection", "Delete"]
+        self.attack_map = {
+            "Replay": " || ",
+            "Flood": " && ",
+            "Injection": " || ",
+            "Delete": " && "
+        }
+        self.negate_cond = {
+            "Replay": True,
+            "Flood": False,
+            "Injection": True,
+            "Delete": False
+        }
+        self.negation_map = {
+            "=="    : "aa_aa",
+            "!="    : "bb_bb",
+            ">="    : "cc_cc",
+            "<="    : "dd_dd",
+            ">(?!=)"     : "ee_ee", #Used regular expression to match
+            "<(?!=)"     : "ff_ff",
+        }
+        self.negation_remap = {
+            "aa_aa": "!=",
+            "bb_bb": "==",
+            "cc_cc": "<",
+            "dd_dd": ">",
+            "ee_ee": "<=",  # Used regular expression to match
+            "ff_ff": ">=",
+        }
+    def string_replace(self, string, index, replacement, length=2):
+        temp_str = ""
+        if length != 2:
+            replacement = "*"
+        for i in index:
+            temp_str = string[:i] + replacement + string[i + length:]
+            string = temp_str
+        return string
+
+    def add_space(self, input_str):
+        string = input_str
+        temp_string = "+|+".join(string)
+        temp_string = temp_string.strip()
+        temp_string = temp_string.replace(" ", "")
+        spaces = {"&&":" && ", "\|\|": " || ", "==": " == ", "!=": " != ",
+                  ">=": " >= ", "<=": " <= ", ">(?!=)" : " > ", "<(?!=)": " < "}
+        for s in spaces:
+            temp_string = re.sub(s, " " + spaces[s] + " ", temp_string)
+        return temp_string.split("+|+")
+
+    def guard_negation(self, guard_str):
+        temp_string = "+|+".join(guard_str)
+        for ng in self.negation_map:
+            temp_string = re.sub(ng, self.negation_map[ng], temp_string)
+        for ng in self.negation_remap:
+            temp_string = re.sub(ng, self.negation_remap[ng], temp_string)
+        return temp_string.split("+|+")
+
+    def create_attacks(self, attack_name=""):
+        self.attack_scripts = {}
+        temp_list = self.orig_matrix["guard"]
+        temp_list = self.add_space(temp_list)
+        if (attack_name != "" and attack_name in self.attacks):
+            if self.negate_cond[attack_name] is True:
+                atk_val = self.guard_negation(temp_list)
+            else:
+                atk_val = temp_list
+            negate_val = self.attack_map[attack_name]
+            make_script = negate_val.join(atk_val) #Need to recode , for instance if the list has only one val.
+            self.attack_scripts[attack_name] = make_script
+        elif attack_name == "":
+            for attack in self.attacks:
+                if self.negate_cond[attack] is True:
+                    atk_val = self.guard_negation(temp_list)
+                else:
+                    atk_val = temp_list
+                negate_val = self.attack_map[attack]
+                make_script = negate_val.join(atk_val)  # Need to recode , for instance if the list has only one val.
+                self.attack_scripts[attack] = make_script
+
+    def get_localvars(self):
+        print("hi")
+
+
+class create_broscript():
+    def __init__(self, name, negations):
+        self.name = name
+        self.attacks = ["Replay", "Flood", "Injection", "Delete"]
+        self.negations = negations
+
+    def create_conditions(self, initial):
+        if_condition = self.form_ifelse(initial)
+
+    def form_ifelse(self, conditions):
+        # Currently only support nested if statements
+        temp_cond = []
+        for c in conditions:
+            temp = "if {}+{{}}".format(c)
+
+    def create_func(self, func_name, func_variables, conditions, ret_type, atk_type):
+        function_format = "function {a} ({b}): {c}\n{{\n{d}\n}}".format\
+            (a=func_name, b=func_variables, c=ret_type, d=conditions)
+
+bro_script = {}
+for key in final_xmldata:
+    id_names = final_xmldata[key].id_names
+    matrix = final_xmldata[key].matrix
+    bro_script[key] = form_attacks(key, id_names, matrix)
+    bro_script[key].create_attacks()
+
+final_script = {}
+for key in bro_script:
+    name = bro_script[key].name
+    matrix = bro_script[key].attack_scripts
+    final_script[key] = create_broscript(name, matrix)
+    func_vars = "meas_net_current: double, breaker_status: bool, injected_stNum: count," \
+                "stNum: count, injected_sqNum: count, sq_Num: count"
+
+function injection_technique_rule(
+
+                meas_net_current: double, breaker_status: bool, injected_stNum: count,
+
+                stNum: count, injected_sqNum: count, sq_Num: count)
+
+{
+
+                if (!(meas_net_current > threshold_of_relay) || breaker_status == T)
+
+                                if ((injected_stNum < stNum) && (injected_sqNum != sq_Num))
+
+                                                print "Raise injection attacks";
+
+}
+
+#print(xml_dict['busbar_IED'].matrix[0])
+#print(xml_dict['feeder_IED'].matrix[0])
+print("end")
+#Step 1: Form class using xml_data("Used names"). Maxtrix is formed using ids in one of template name
+#Step 2: Find guard condition which has "!" which will return matrix with vectors. Currently, it is expected to have
+#only one guard condition with "!"
