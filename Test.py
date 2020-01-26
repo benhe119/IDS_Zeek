@@ -1,3 +1,9 @@
+f = open("Injection_template.txt", "r")
+f = f.read()
+
+print(f.count("var_txt"))
+print(f.format(txt_1="a",txt_2="b",txt_3="c",txt_4="d"))
+
 import re
 x1 = "no_of_goose <=1 && breaker_status==true && stNum < prev_stNum && sqNum == 0+|+is_busy==false"
 x1 = x1.strip()
