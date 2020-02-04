@@ -12,7 +12,7 @@ path = './XMLs'
 # name is tag, x="5" y="5" is attrib, busbar_IED is text. P
 
 #xml_file = ET.parse(path+"/Test_Busbar.xml")
-xml_file = lxml.etree.parse(path+"/Test_Busbar.xml")
+xml_file = lxml.etree.parse(path+"/Test_Busbar-Carmen-HC-latest.xml")
 root_xml = xml_file.getroot()
 
 # Function to get names of templates
@@ -28,43 +28,44 @@ class xml_data():
     def __init__(self, name):
         self.name = name
         self.node = root_xml.find(".//template[name='{}']".format(self.name))
-        self.id_names = self.get_ids()
-        self.matrix = self.form_matrix()
-        self.vector = []
 
-    # Getting id of the template name
-    def get_ids(self):
-        find_src = self.node.findall(".//source")
-        find_tgt = self.node.findall(".//target")
-        ids = [at.attrib["ref"] for at in find_src]
-        ids.extend([at.attrib["ref"] for at in find_src])
-        id_names = sorted(set(ids))
-        return id_names
+    def get_attribute_names(self, element):
+        if element is None:
+            # If there is no element in the elements variable
+            return "Error: E1"
+        try:
+            attrib_list = [el.attrib.get('kind') for el in element.findall('.//label')]
+            return attrib_list
+        except:
+            # If there is no "kind" in the element
+            return "Error: E2"
 
-    # Function to locate the initial point "!"
-    def find_condition(self):
-        # "!" is used as precondition check
-        cond_loc = self.node.xpath(".//*[contains(text(), '!')][not(contains(text(), '!='))]/..")
-        self.no_of_cond = len(cond_loc)
-        #Need another way to find !, find guard and find !
-        return cond_loc
+    def get_element_value(self, element, attrib_name):
+        try:
+            value = (element.find(".//*[@kind='{}']".format(attrib_name))).text
+            return value.replace("\n", "")
+        except:
+            # There is no attribute name in "kind" for the given element
+            return "Error: E3"
 
-    def find_vectors(self, element, hop=1): # Element is the starting point where '!' is found
-        for elem in element:
-            self.vector = []
-            src = (elem.find(".//source")).attrib["ref"]
-            tgt = (elem.find(".//target")).attrib["ref"]
-            self.vector.append(elem) #Append the initial condition
-            target_elem = elem
-            for h in range(hop):
-                target_elem = self.find_target(target_elem)
-                if target_elem == 0:
-                    break
-                else:
-                    self.vector.append(target_elem)
-            self.store_data(self.vector)
-        del self.idx, self.vector, self.dim #deleting variables to have a clean dictionary with matrix
-        return self.matrix
+    def form_dictionary(self, elements):
+        self.xml_values = []
+        for e in elements:
+            dict_xml = {}
+            dict_xml["vector"] = [e]
+            attrib_list = self.get_attribute_names(e)
+            for attrib in attrib_list:
+                dict_xml[attrib] = []
+            self.xml_values.append(dict_xml)
+        print("end")
+
+    def find_next_hop_element(self, hops=1):
+        for cnt in range(len(self.xml_values)):
+            element = self.xml_values[cnt]["vector"]
+            next_element = self.find_target(element[0])
+            if next_element != 0:
+                element.append(next_element)
+            self.xml_values[cnt]["vector"] = element
 
     #Find target from the given element's source
     def find_target(self, element):
@@ -77,168 +78,155 @@ class xml_data():
             print("No targets found from source! Returning the vectors")
             return 0
 
-    # Form a null matrix based on the ID names from template. For example id0, id1, id2 represents a 3x3 matrix
-    # Also create a 3rd dimension with values obtained from "kind" in the xml e.g."guard" has 3x3 matrix for a template
-    def form_matrix(self):
-        self.idx = {}
-        temp_cnt = 0
-        for id in self.id_names:
-            self.idx[id] = temp_cnt
-            temp_cnt = temp_cnt + 1
-        dim_names = set([elem.attrib["kind"] for elem in self.node.findall(".//*[@kind]")])
-        self.dim = {}
-        temp_cnt = 0
-        for d in dim_names:
-            self.dim[d] = temp_cnt
-            temp_cnt = temp_cnt + 1
-        m_matrix = {}
-        for d in self.dim:
-            m_matrix[d] = np.zeros((len(self.idx), len(self.idx)), dtype=object) # no. of Dimension, row, colmuns
-        return m_matrix
+    def store_values(self, elements):
+        self.form_dictionary(elements)
+        self.find_next_hop_element()
+        for cnt in range(len(self.xml_values)):
+            vector_elems = self.xml_values[cnt]["vector"]
+            for elem in vector_elems:
+                for key in self.xml_values[cnt]:
+                    if key != "vector":
+                        elem_text = self.get_element_value(elem, key)
+                        ## Add synchronization element to guard in the second hop
+                        if "?" in elem_text and vector_elems.index(elem) == 1:
+                            self.xml_values[cnt]["guard"].append(elem_text)
+                        else:
+                            self.xml_values[cnt][key].append(elem_text)
 
-    def store_data(self, elements):
-        for elem in elements:
-            row = (elem.find(".//source")).attrib["ref"]
-            col = (elem.find(".//target")).attrib["ref"]
-            kind = [e.attrib["kind"] for e in elem.findall(".//*[@kind]")]
-
-            for label in kind:
-                mtx = self.matrix[label].item((self.idx[row], self.idx[col]))
-                elem_txt = (elem.find(".//*[@kind='{}']".format(label))).text
-                if mtx is 0 or mtx is None:
-                    self.matrix[label][self.idx[row], self.idx[col]] = [elem_txt]
-                else:
-                    if mtx is not None:
-                        mtx.append(elem_txt)
-
-    #Useless function at the moment!
-    def src_tgt_list(self, elements):
-        temp_list = []
-        for elem in elements:
-            src = elem.find(".//source").attrib["ref"]
-            tgt = elem.find(".//target").attrib["ref"]
-            temp_list.append((src,tgt))
-        return temp_list
+    # Function to locate the initial point "!"
+    def find_condition(self):
+        # "!" is used as precondition check
+        cond_loc = self.node.xpath(".//*[contains(text(), '!')][not(contains(text(), '!='))]/..")
+        self.no_of_cond = len(cond_loc)
+        return cond_loc
 
 xml_names = get_names(root_xml)
 xml_dict = {}
 for name in xml_names:
     xml_dict[name]=xml_data(name)
     cond_check = xml_dict[name].find_condition()
-    xml_dict[name].find_vectors(cond_check, hop=1)
+    xml_dict[name].store_values(cond_check)
     print("Checkpoint")
-final_xmldata = xml_dict.copy()
 
-class form_negations():
-    def __init__(self, name, matrix, no_of_cond):
+class process_conditions():
+    def __init__(self, name, matrix):
         self.name = name
-        self.dict_matrix = matrix
-        self.no_of_cond = no_of_cond
-        self.attacks = ["Replay", "Flood", "Injection", "Delete"]
-        self.attack_map = {
-            "Replay": " || ",
-            "Flood": " && ",
-            "Injection": " || ",
-            "Delete": " && "
-        }
-        self.negate_cond = {
-            "Replay": True,
-            "Flood": False,
-            "Injection": True,
-            "Delete": False
-        }
+        self.xml_dict = matrix
+        self.attack_params_dict = {}
 
-    def add_space(self, string_list):
-        temp_string = "+|+".join(string_list)
-        temp_string = temp_string.strip()
-        temp_string = temp_string.replace(" ", "")
-        spaces = {"&&":" && ", "\|\|": " || ", "==": " == ", "!=": " != ",
-                  ">=": " >= ", "<=": " <= ", ">(?!=)" : " > ", "<(?!=)": " < "}
-        for s in spaces:
-            temp_string = re.sub(s, " " + spaces[s] + " ", temp_string)
-        return temp_string.split("+|+")
-
-    # String with commas inside a string
-    def string_split(self, raw_list):
-        split_string_list = []
-        try:
-            for str in raw_list:
-                temp_var = str.strip()
-                temp_var = temp_var.replace(" ", "")
-                temp_split_var = re.split(',', temp_var)
-                split_string_list.extend(temp_split_var)
-        except:
-            split_string_list = raw_list
-        return split_string_list
-
-    def flatten_matrix(self): #Store the values as list
-        for key in self.dict_matrix:
-            temp_list = []
-            x1 = self.dict_matrix[key]
-            x1 = x1[np.nonzero(x1)]
-            for c in range(self.no_of_cond):
-                x2 = [g[c] for g in x1]
-                x2 = self.string_split(x2)
-                x2 = self.add_space(x2)
-                temp_list.append(x2)
-            self.dict_matrix[key] = temp_list.copy()
-    # This function gets the guard. Currently, the guard is a matrix; this function will collapse matrix
-    # to a list. The list if futher re-arranged based on the condition. For example if there are two conditions
-    # in a template name, a list with in a list is created where list[0] will correspond to first condition guard.
-    def get_guard(self):
-        #guard_list = self.dict_matrix["guard"]
-        #guard_list = guard_list[np.nonzero(guard_list)]
-        self.flatten_matrix()
-        guard_list = self.dict_matrix["guard"]
-        for arr in guard_list:
-            print("Number of guards = " + str(len(arr)))
-            print("Num of conditions = " + str(self.no_of_cond))
-            if len(arr) == self.no_of_cond:
-                print(self.name)
-                print("Conditions satisfied! Continuing to next step")
+    def flatten(self, l):
+        for el in l:
+            if isinstance(el, collections.Iterable) and not isinstance(el, (str, bytes)):
+                yield from self.flatten(el)
             else:
-                print(self.name)
-                print("Conditions not satisfied! Number of conditions and Number of guard must be equal")
-                exit()
+                yield el
+
+    def remove_space(self, string):
+        pattern = re.compile(r'\s+')
+        return re.sub(pattern, '', string)
+
+    def get_global_variables(self):
+        raw_global_vars = root_xml.xpath("/nta/declaration/text()")[0]
+        raw_global_vars = raw_global_vars.replace("\n", "")
+        raw_global_vars = raw_global_vars.split(";")
+        variable_types = ["int", "bool"]
+        raw_global_vars = [var for var in raw_global_vars for type in variable_types if type in var]
+        self.global_vars_dict = {}
+        for type in variable_types:
+            temp_list = [var.strip(type) for var in raw_global_vars if type in var]
+            temp_list = [self.remove_space(var) for var in temp_list]
+            temp_dict = {}
+            for temp in temp_list:
+                temp = temp.split("=")
+                temp_dict["glo_"+temp[0]] = temp[1]
+            self.global_vars_dict[type] = temp_dict
+        print("end")
+
+    def to_global_vars(self):
+        print(1)
+
+    def get_variables_from_operator(self, string_list):
+        return_list = []
+        for str in string_list:
+            re.split('<(?!=)|<=|==|=(?!=)|>(?!=)|>=', str)
+        print(1)
+
+    def get_guard(self):
+        guard_list = []
+        for condition in self.xml_dict:
+            #remove error codes
+            temp_list = [con for con in condition["guard"] if "Error" not in con]
+            temp_list = [re.split("&&", con) for con in temp_list] #Split variables with &&
+            temp_list = self.flatten(temp_list)
+            #Remove special characters
+            #temp_list = [re.sub('[!@#$?]', '', con) for con in temp_list]
+            guard_list.append(list(temp_list))
         return guard_list
 
-    def make_negations(self, guard_list):
-        self.negated_guard_dict = {}
-        for atk in self.attacks:
-            temp_guard_list = []
-            if self.negate_cond[atk] == True: # Negate if true
-                for g in guard_list:
-                    x1 = (["!("+s+")" for s in g])
-                    x1 = (" "+self.attack_map[atk]+" ").join(x1)
-                    temp_guard_list.append(x1)
+    def is_bool(self, b):
+        b_list = ["True", "TRUE", "true", "False", "FALSE", "false"]
+        try:
+            if b in b_list:
+                return True
+        except:
+            return False
 
-            else:
-                for g in guard_list:
-                    x1 = (["(" + s + ")" for s in g])
-                    x1 = (" "+self.attack_map[atk]+" ").join(x1)
-                    temp_guard_list.append(x1)
+    def is_numeric(self, b):
+        if b.isnumeric():
+            return True
+        else:
+            return False
 
-            self.negated_guard_dict[atk] = temp_guard_list
-        del self.attack_map, self.negate_cond
-        return self.negated_guard_dict
+    def is_counter(self, string):
+        container = ["++", "+1", "+ 1"]
+        try:
+            for c in container:
+                if c in string:
+                    return True
+        except:
+            return False
 
-# For final xml which is correct.
-'''
-negation_dict = {}
-for key in final_xmldata:
-    matrix = final_xmldata[key].matrix
-    no_of_cond = final_xmldata[key].no_of_cond
-    negation_dict[key] = form_negations(key, matrix, no_of_cond)
-    guard_list = negation_dict[key].get_guard()
-    negation_dict[key].make_negations(guard_list)
-'''
-# Only for busbar_IED
-negation_dict = {}
-matrix = final_xmldata["busbar_IED"].matrix
-no_of_cond = final_xmldata["busbar_IED"].no_of_cond
-negation_dict["busbar_IED"] = form_negations("busbar_IED", matrix, no_of_cond)
-guard_list = negation_dict["busbar_IED"].get_guard()
-negation_dict["busbar_IED"].make_negations(guard_list)
+    def make_global_guard(self, guard_list):
+        operator_split = '<(?!=)|<=|==|=(?!=)|>(?!=)|>='
+        replace_dict = {}
+        #for guard in guard_list:
+        #    for operator in guard:
+        for c1 in range(len(guard_list)):
+            for c2 in range(len(guard_list[c1])):
+                operator = guard_list[c1][c2]
+                var_temp = re.sub(" ","", operator)
+                var_temp = re.split(operator_split, var_temp)
+                if len(var_temp) == 2 and "glo_" not in var_temp[0]:
+                    if self.is_numeric(var_temp[1]) or self.is_counter(var_temp[1]) or self.is_bool(var_temp[1]):
+                        guard_list[c1][c2] = guard_list[c1][c2].replace(var_temp[0], "glo_"+var_temp[0])
+                    else:
+                        guard_list[c1][c2] = guard_list[c1][c2].replace(var_temp[0], "glo_" + var_temp[0])
+                        guard_list[c1][c2] = guard_list[c1][c2].replace(var_temp[1], "glo_" + var_temp[1])
+                if len(var_temp) == 1 and "glo_" not in var_temp[0]:
+                    guard_list[c1][c2] = guard_list[c1][c2].replace(var_temp[0], "glo_"+var_temp[0])
+        return guard_list
+
+    def get_parameters(self, attack_type):
+        #Making a guard dictionary and adding to main attack_params_dict
+        guard_list = self.get_guard()
+        guard_list = self.make_global_guard(guard_list)
+        cond_dict = {}
+        for c in range(len(guard_list)):
+            guard_dict = {}
+            cond_dict["cond_" + str(c)] = guard_dict
+            cond_dict["cond_"+str(c)]["guard"] = guard_list[c]
+            self.attack_params_dict[attack_type] = cond_dict
+
+        #Sub-conditions
+
+
+# Only for busbar_IED1
+processed_variables_dict = {}
+xml_dict_list = xml_dict["busbar_IED1"].xml_values
+processed_variables_dict["busbar_IED1"] = process_conditions("busbar_IED1", xml_dict_list)
+guard_list = processed_variables_dict["busbar_IED1"].get_parameters(attack_type="Injection")
+processed_variables_dict["busbar_IED1"].get_global_variables()
+processed_variables_dict["busbar_IED1"].make_negations(guard_list)
 
 
 class create_variables():
