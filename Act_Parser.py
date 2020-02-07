@@ -158,6 +158,8 @@ class process_conditions():
             temp_list = [con for con in condition["guard"] if "Error" not in con]
             temp_list = [re.split("&&", con) for con in temp_list] #Split variables with &&
             temp_list = self.flatten(temp_list)
+            temp_list = [re.split(",", con) for con in temp_list]  # Split variables with ,
+            temp_list = self.flatten(temp_list)
             #Remove special characters
             #temp_list = [re.sub('[!@#$?]', '', con) for con in temp_list]
             guard_list.append(list(temp_list))
@@ -186,6 +188,13 @@ class process_conditions():
         except:
             return False
 
+    def is_arithmetic(self, string_1, string_2):
+        if string_1 in string_2:
+            return True
+        else:
+            return False
+
+
     def make_global_guard(self, guard_list):
         operator_split = '<(?!=)|<=|==|=(?!=)|>(?!=)|>='
         replace_dict = {}
@@ -197,7 +206,7 @@ class process_conditions():
                 var_temp = re.sub(" ","", operator)
                 var_temp = re.split(operator_split, var_temp)
                 if len(var_temp) == 2 and "glo_" not in var_temp[0]:
-                    if self.is_numeric(var_temp[1]) or self.is_counter(var_temp[1]) or self.is_bool(var_temp[1]):
+                    if self.is_numeric(var_temp[1]) or self.is_bool(var_temp[1]):
                         guard_list[c1][c2] = guard_list[c1][c2].replace(var_temp[0], "glo_"+var_temp[0])
                     else:
                         guard_list[c1][c2] = guard_list[c1][c2].replace(var_temp[0], "glo_" + var_temp[0])
@@ -205,6 +214,52 @@ class process_conditions():
                 if len(var_temp) == 1 and "glo_" not in var_temp[0]:
                     guard_list[c1][c2] = guard_list[c1][c2].replace(var_temp[0], "glo_"+var_temp[0])
         return guard_list
+
+    def get_assignment(self):
+        assignment_list = []
+        for condition in self.xml_dict:
+            #remove error codes
+            temp_list = [con for con in condition["assignment"] if "Error" not in con]
+            temp_list = [re.split("&&", con) for con in temp_list] #Split variables with &&
+            temp_list = self.flatten(temp_list)
+            temp_list = [re.split(",", con) for con in temp_list]  # Split variables with ,
+            temp_list = self.flatten(temp_list)
+            #Remove special characters
+            #temp_list = [re.sub('[!@#$?]', '', con) for con in temp_list]
+            assignment_list.append(list(temp_list))
+        return assignment_list
+
+    def make_assignment_rules(self, assignment_list):
+        operator_split = '<(?!=)|<=|==|=(?!=)|>(?!=)|>='
+        #for guard in guard_list:
+        #    for operator in guard:
+        for c1 in range(len(assignment_list)):
+            for c2 in range(len(assignment_list[c1])):
+                operator = assignment_list[c1][c2]
+                var_temp = re.sub(" ","", operator)
+                var_temp = re.split(operator_split, var_temp)
+                flag_1 = False
+                if len(var_temp) == 2:
+                    #Condition I if expression is a boolean operation, use local variable and
+                    # check that the condition is true
+                    if self.is_numeric(var_temp[1]):
+                        assignment_list[c1][c2] = var_temp[0] + " == " + var_temp[1]
+                        flag_1 = True
+                    #Condition II: if expression is an arithmetic operation, verify the condition
+                    # is correct by equating the local variable to the global variable
+                    if self.is_arithmetic(var_temp[0], var_temp[1]) and flag_1 != True:
+                        assignment_list[c1][c2] = var_temp[0] + " == glo_" + var_temp[0] + "+1"
+                        flag_1 = True
+                    #Condition III: if expression is an assignment operation. use local variable
+                    # declaration and perform equality check
+                    if self.is_bool(var_temp[1]) and flag_1 != True:
+                        assignment_list[c1][c2] = var_temp[0] + " == " + var_temp[1]
+                        flag_1 = True
+                if len(var_temp) == 1:
+                    if self.is_counter(var_temp[0]):
+                        var_temp = re.sub('[++,+1,+ 1]', '', var_temp[0])
+                        assignment_list[c1][c2] = var_temp + " == glo_" + var_temp + " +1"
+        return assignment_list
 
     def get_parameters(self, attack_type):
         #Making a guard dictionary and adding to main attack_params_dict
@@ -216,8 +271,14 @@ class process_conditions():
             cond_dict["cond_" + str(c)] = guard_dict
             cond_dict["cond_"+str(c)]["guard"] = guard_list[c]
             self.attack_params_dict[attack_type] = cond_dict
-
+        assignment_list = self.get_assignment()
+        assignment_list = self.make_assignment_rules(assignment_list)
         #Sub-conditions
+        for c in range(len(assignment_list)):
+            assignment_dict = {}
+            cond_dict["cond_" + str(c)]["assignment"] = assignment_list[c]
+            self.attack_params_dict[attack_type] = cond_dict
+        print(1)
 
 
 # Only for busbar_IED1
