@@ -369,6 +369,16 @@ class create_function_bro():
         #Test
         self.create_inject_flood_function((2,17))
 
+    def global_variables(self):
+        global_vars = []
+        for key in self.global_vars_dict:
+            for var in self.global_vars_dict[key]:
+                if self.global_vars_dict[key][var] == "":
+                    global_vars.append("global " + var + ";")
+                else:
+                    global_vars.append("global " + var + " = " + self.global_vars_dict[key][var] + ";")
+        return "\n".join(global_vars)
+
     def insert_precondition_IF(self, templater, parameters):
         template = templater[:]
         for n1 in range(len(template)):
@@ -379,7 +389,6 @@ class create_function_bro():
                     template[n1][key] =  1#" && ".join(parameters[c1][self.mapping_IF[key]])
                 except:
                     continue
-
 
     def create_inject_flood_function(self, line, attack_type="Inject & Flood"):
         import_template = open("Injection_template.txt", "r")
@@ -411,7 +420,6 @@ class create_function_bro():
                     continue
             con_dict.append(cond_template_dict)
 
-
         make_function = []
         # Function title
         for n1 in range(0, line[0]):
@@ -421,8 +429,13 @@ class create_function_bro():
             make_function.append(cond_template%con_dict[n2])
         for n3 in range(line[1], len(inj_template)):
             make_function.append(inj_template[n3])
-        print("".join(make_function))
-        print("end")
+
+        global_variables = self.global_variables()
+        function_IJ = "".join(make_function)
+        f = open("IJ_Function.txt", "w+")
+        f.write(global_variables)
+        f.write(function_IJ)
+        f.close()
 
 functions_bro_dict = {}
 v1 = "busbar_IED1"
