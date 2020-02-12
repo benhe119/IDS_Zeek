@@ -434,6 +434,7 @@ class create_function_bro():
         function_IJ = "".join(make_function)
         f = open("IJ_Function.txt", "w+")
         f.write(global_variables)
+        f.write("\n\n")
         f.write(function_IJ)
         f.close()
 

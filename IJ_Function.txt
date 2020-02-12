@@ -10,7 +10,9 @@ global glo_is_fast_goose = false;
 global glo_timer;
 global glo_wait;
 global glo_timer2;
-global glo_timer3;function injection_attack(timer2: double, no_of_goose: double, sqNum: count, send: bool, breaker_status: bool, timer3: double, stNum: count, sqNum: double, is_fast_goose: bool):
+global glo_timer3;
+
+function injection_attack(timer2: double, no_of_goose: double, sqNum: count, send: bool, breaker_status: bool, timer3: double, stNum: count, sqNum: double, is_fast_goose: bool):
 	{
 	if (glo_send==false && glo_sendFast?)
 	    {
