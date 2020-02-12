@@ -1,0 +1,77 @@
+global glo_stNum = 1;
+global glo_sqNum = 0;
+global glo_net_current = 0;
+global glo_threshold_of_relay = 0;
+global glo_prev_stNum = 0;
+global glo_no_of_goose = 0;
+global glo_interval = 5;
+global glo_breaker_status = false;
+global glo_is_fast_goose = false;
+global glo_timer;
+global glo_wait;
+global glo_timer2;
+global glo_timer3;function injection_attack(timer2: double, no_of_goose: double, sqNum: count, send: bool, breaker_status: bool, timer3: double, stNum: count, sqNum: double, is_fast_goose: bool):
+	{
+	if (glo_send==false && glo_sendFast?)
+	    {
+		if (timer2 == 0 && no_of_goose == 1 && sqNum == glo_sqNum+1 && send == true)
+			{
+			#Update global variables
+			#glo_stnum = stnum; glo_sqnum = sqnum
+			glo_timer2 = timer2; glo_no_of_goose = no_of_goose; glo_sqNum = sqNum; glo_send = False;
+			return 1;
+			}
+		else
+			{
+			print "Injection Attack Alarm"
+			return 0;
+			}
+		}
+	if (glo_timer3>=1 && glo_timer2<glo_interval)
+	    {
+		if (breaker_status == true && no_of_goose == 1 && sqNum == glo_sqNum+1 && timer3 == 0)
+			{
+			#Update global variables
+			#glo_stnum = stnum; glo_sqnum = sqnum
+			glo_breaker_status = False; glo_no_of_goose = no_of_goose; glo_sqNum = sqNum; glo_timer3 = timer3;
+			return 1;
+			}
+		else
+			{
+			print "Injection Attack Alarm"
+			return 0;
+			}
+		}
+	if (glo_send==true  &&  glo_timer2>=glo_interval && glo_sendFast?)
+	    {
+		if (timer2 == 0 && no_of_goose == 1 && sqNum == glo_sqNum+1)
+			{
+			#Update global variables
+			#glo_stnum = stnum; glo_sqnum = sqnum
+			glo_timer2 = timer2; glo_no_of_goose = no_of_goose; glo_sqNum = sqNum;
+			return 1;
+			}
+		else
+			{
+			print "Injection Attack Alarm"
+			return 0;
+			}
+		}
+	if (glo_send==true  &&  glo_timer2<glo_interval  &&  glo_net_current>glo_threshold_of_relay && glo_sendFast?)
+	    {
+		if (no_of_goose == 1 && timer3 == 0 && stNum == glo_stNum+1 && sqNum == 0 && is_fast_goose == true)
+			{
+			#Update global variables
+			#glo_stnum = stnum; glo_sqnum = sqnum
+			glo_no_of_goose = no_of_goose; glo_timer3 = timer3; glo_stNum = stNum; glo_sqNum = sqNum; glo_is_fast_goose = False;
+			return 1;
+			}
+		else
+			{
+			print "Injection Attack Alarm"
+			return 0;
+			}
+		}
+	print "Injection Attack Alarm";
+	return 0;
+	}
